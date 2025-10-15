@@ -1,7 +1,7 @@
 import autograd.numpy as np
 
-from util import memoize, WeightsParser
-from rdkit_utils import smiles_to_fps
+from .util import memoize, WeightsParser
+from .rdkit_utils import smiles_to_fps
 
 
 def batch_normalize(activations):
@@ -32,8 +32,9 @@ def build_standard_net(layer_sizes, normalize, L2_reg, L1_reg=0.0, activation_fu
                        nll_func=mean_squared_error):
     """Just a plain old neural net, nothing to do with molecules.
     layer sizes includes the input size."""
-    layer_sizes = layer_sizes + [1]
-
+    # layer_sizes = [model_params['fp_length'], model_params['h1_size']],  # One hidden layer.
+    # so layer_sizes = [50, 100] for `run_morgan_experiment`
+    layer_sizes = layer_sizes + [1] # the size=1 here is for the final output (of the physical property)
     parser = WeightsParser()
     for i, shape in enumerate(zip(layer_sizes[:-1], layer_sizes[1:])):
         parser.add_weights(('weights', i), shape)
@@ -63,6 +64,11 @@ def build_standard_net(layer_sizes, normalize, L2_reg, L1_reg=0.0, activation_fu
 def build_fingerprint_deep_net(net_params, fingerprint_func, fp_parser, fp_l2_penalty):
     """Composes a fingerprint function with signature (smiles, weights, params)
      with a fully-connected neural network."""
+    # For build_conv_deep_net in build_convnet.py, the input "fingerprint_func" is
+    # a function takes all the fp_weights and returns the vector sum of all fingerprints,
+    # and the input "fp_parser" parses all the fp weights
+    print("Showing net_params passed to build_fingerprint_deep_net")
+    print(net_params)
     net_loss_fun, net_pred_fun, net_parser = build_standard_net(**net_params)
 
     combined_parser = WeightsParser()

@@ -1,10 +1,10 @@
 import autograd.numpy as np
-from autograd.scipy.misc import logsumexp
+from autograd.scipy.special import logsumexp
 
-from features import num_atom_features, num_bond_features
-from util import memoize, WeightsParser
-from mol_graph import graph_from_smiles_tuple, degrees
-from build_vanilla_net import build_fingerprint_deep_net, relu, batch_normalize
+from .features import num_atom_features, num_bond_features
+from .util import memoize, WeightsParser
+from .mol_graph import graph_from_smiles_tuple, degrees
+from .build_vanilla_net import build_fingerprint_deep_net, relu, batch_normalize
 
 
 def fast_array_from_list(xs):
@@ -24,7 +24,7 @@ def matmult_neighbors(array_rep, atom_features, bond_features, get_weights):
         if len(atom_neighbors_list) > 0:
             neighbor_features = [atom_features[atom_neighbors_list],
                                  bond_features[bond_neighbors_list]]
-            # dims of stacked_neighbors are [atoms, neighbors, atom and bond features]
+            # dims of stacked_neighbors are [atoms satisfying degree, their neighbors, atom + bond features]
             stacked_neighbors = np.concatenate(neighbor_features, axis=2)
             summed_neighbors = np.sum(stacked_neighbors, axis=1)
             activations = np.dot(summed_neighbors, get_weights(degree))
@@ -48,7 +48,10 @@ def build_convnet_fingerprint_fun(num_hidden_features=[100, 100], fp_length=512,
         parser.add_weights(('layer output weights', layer), (all_layer_sizes[layer], fp_length))
         parser.add_weights(('layer output bias', layer),    (1, fp_length))
 
-    in_and_out_sizes = zip(all_layer_sizes[:-1], all_layer_sizes[1:])
+    in_and_out_sizes = list(zip(all_layer_sizes[:-1], all_layer_sizes[1:]))
+    # TODO
+    # print("in_and_out_sizes: ", in_and_out_sizes)
+    # print("************")
     for layer, (N_prev, N_cur) in enumerate(in_and_out_sizes):
         parser.add_weights(("layer", layer, "biases"), (1, N_cur))
         parser.add_weights(("layer", layer, "self filter"), (N_prev, N_cur))
@@ -88,11 +91,14 @@ def build_convnet_fingerprint_fun(num_hidden_features=[100, 100], fp_length=512,
             all_layer_fps.append(layer_output)
 
         num_layers = len(num_hidden_features)
-        for layer in xrange(num_layers):
+        for layer in range(num_layers):
             write_to_fingerprint(atom_features, layer)
+            # Note after update_layer, atom_features will likely change their shapes
+            # Bond_features are always in the shape of (nbonds, 6)
             atom_features = update_layer(weights, layer, atom_features, bond_features, array_rep,
                                          normalize=normalize)
         write_to_fingerprint(atom_features, num_layers)
+        # The sum is per molecule, in the shape of (n_mol, fp_size)
         return sum(all_layer_fps), atom_activations, array_rep
 
     def output_layer_fun(weights, smiles):
@@ -125,6 +131,9 @@ def array_rep_from_smiles(smiles):
 
 def build_conv_deep_net(conv_params, net_params, fp_l2_penalty=0.0):
     """Returns loss_fun(all_weights, smiles, targets), pred_fun, combined_parser."""
+    # `conv_fp_func` is a function that takes all the fp weights and returns the vector sum of all fingerprints
     conv_fp_func, conv_parser = build_convnet_fingerprint_fun(**conv_params)
+    # `build_fingerprint_deep_net`` will add the weights for the predicting layer (output head)
+    # and returns these three: loss_fun, pred_fun, combined_parser
     return build_fingerprint_deep_net(net_params, conv_fp_func, conv_parser, fp_l2_penalty)
 
