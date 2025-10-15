@@ -102,6 +102,8 @@ def main():
         conv_layer_sizes = [model_params['conv_width']] * model_params['fp_depth']
         conv_arch_params = {'num_hidden_features' : conv_layer_sizes,
                             'fp_length' : model_params['fp_length'], 'normalize' : 1}
+        # `pred_fun`` here is a wrapper takes all the weights (fp + net)
+        # conv_parser here is the combined parser
         loss_fun, pred_fun, conv_parser = \
             build_conv_deep_net(conv_arch_params, vanilla_net_params, model_params['L2_reg'])
         num_weights = len(conv_parser)

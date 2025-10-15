@@ -14,7 +14,8 @@ import autograd.numpy.random as npr
 from autograd import grad
 from rdkit import Chem
 from rdkit.Chem import Draw
-from rdkit.Chem.Draw import DrawingOptions
+# from rdkit.Chem.Draw import DrawingOptions
+from rdkit.Chem.Draw.rdMolDraw2D import MolDrawOptions
 import matplotlib.pyplot as plt
 
 from neuralfingerprint import load_data, relu
@@ -51,7 +52,7 @@ conv_arch_params = {'num_hidden_features' : conv_layer_sizes,
                     'normalize' : normalize,
                     'return_atom_activations':False}
 
-all_radii = range(params['fp_depth'] + 1)
+all_radii = list(range(params['fp_depth'] + 1))
 
 # Plotting parameters
 num_figs_per_fp = 11
@@ -77,7 +78,7 @@ def parse_training_params(params):
 def train_nn(pred_fun, loss_fun, num_weights, train_smiles, train_raw_targets, train_params,
              validation_smiles=None, validation_raw_targets=None):
     """loss_fun has inputs (weights, smiles, targets)"""
-    print "Total number of weights in the network:", num_weights
+    print("Total number of weights in the network:", num_weights)
     npr.seed(0)
     init_weights = npr.randn(num_weights) * train_params['param_scale']
 
@@ -85,22 +86,23 @@ def train_nn(pred_fun, loss_fun, num_weights, train_smiles, train_raw_targets, t
     training_curve = []
     def callback(weights, iter):
         if iter % 10 == 0:
-            print "max of weights", np.max(np.abs(weights))
+            print("max of weights", np.max(np.abs(weights)))
             train_preds = undo_norm(pred_fun(weights, train_smiles))
             cur_loss = loss_fun(weights, train_smiles, train_targets)
             training_curve.append(cur_loss)
-            print "Iteration", iter, "loss", cur_loss, "train RMSE", \
-                np.sqrt(np.mean((train_preds - train_raw_targets)**2)),
+            print("Iteration", iter, "loss", cur_loss, "train RMSE", \
+                np.sqrt(np.mean((train_preds - train_raw_targets)**2)), end=' ')
             if validation_smiles is not None:
                 validation_preds = undo_norm(pred_fun(weights, validation_smiles))
-                print "Validation RMSE", iter, ":", \
-                    np.sqrt(np.mean((validation_preds - validation_raw_targets) ** 2)),
+                print("Validation RMSE", iter, ":", \
+                    np.sqrt(np.mean((validation_preds - validation_raw_targets) ** 2)), end=' ')
 
     grad_fun = grad(loss_fun)
     grad_fun_with_data = build_batched_grad(grad_fun, train_params['batch_size'],
                                             train_smiles, train_targets)
 
     num_iters = train_params['num_epochs'] * len(train_smiles) / train_params['batch_size']
+    num_iters = int(num_iters)
     trained_weights = adam(grad_fun_with_data, init_weights, callback=callback,
                            num_iters=num_iters, step_size=train_params['learn_rate'],
                            b1=train_params['b1'], b2=train_params['b2'])
@@ -112,33 +114,33 @@ def train_nn(pred_fun, loss_fun, num_weights, train_smiles, train_raw_targets, t
 
 
 def train_neural_fingerprint():
-    print "Loading data..."
+    print("Loading data...")
     traindata, valdata, testdata = load_data(task_params['data_file'],
                         (task_params['N_train'], task_params['N_valid'], task_params['N_test']),
                         input_name='smiles', target_name=task_params['target_name'])
     train_inputs, train_targets = traindata
     val_inputs, val_targets = valdata
 
-    print "Regression on", task_params['N_train'], "training points."
+    print("Regression on", task_params['N_train'], "training points.")
     def print_performance(pred_func):
         train_preds = pred_func(train_inputs)
         val_preds = pred_func(val_inputs)
-        print "\nPerformance (RMSE) on " + task_params['target_name'] + ":"
-        print "Train:", rmse(train_preds, train_targets)
-        print "Test: ", rmse(val_preds,  val_targets)
-        print "-" * 80
+        print("\nPerformance (RMSE) on " + task_params['target_name'] + ":")
+        print("Train:", rmse(train_preds, train_targets))
+        print("Test: ", rmse(val_preds,  val_targets))
+        print("-" * 80)
         return rmse(val_preds,  val_targets)
 
-    print "-" * 80
-    print "Mean predictor"
+    print("-" * 80)
+    print("Mean predictor")
     y_train_mean = np.mean(train_targets)
     print_performance(lambda x : y_train_mean)
 
-    print "Task params", params
+    print("Task params", params)
     nn_train_params, vanilla_net_params = parse_training_params(params)
     conv_arch_params['return_atom_activations'] = False
 
-    print "Convnet fingerprints with neural net"
+    print("Convnet fingerprints with neural net")
     loss_fun, pred_fun, conv_parser = \
         build_conv_deep_net(conv_arch_params, vanilla_net_params, params['l2_penalty'])
     num_weights = len(conv_parser)
@@ -150,17 +152,20 @@ def train_neural_fingerprint():
 
 
 def draw_molecule_with_highlights(filename, smiles, highlight_atoms):
-    drawoptions = DrawingOptions()
-    drawoptions.selectColor = highlight_color
-    drawoptions.elemDict = {}   # Don't color nodes based on their element.
-    drawoptions.bgColor=None
+    drawoptions = MolDrawOptions() # DrawingOptions()
+    drawoptions.setHighlightColour = highlight_color
+    # drawoptions.elemDict = {}   # Don't color nodes based on their element.
+    drawoptions.setBackgroundColour((1.0, 1.0, 1.0))
 
     mol = Chem.MolFromSmiles(smiles)
-    fig = Draw.MolToMPL(mol, highlightAtoms=highlight_atoms, size=figsize, options=drawoptions,fitImage=False)
+    # Draw.rdMolDraw2D.MolDraw2D.SetDrawOptions(drawoptions)
+    fig = Draw.MolToSVG(mol, highlightAtoms=highlight_atoms, width=figsize[0], height=figsize[1])
 
-    fig.gca().set_axis_off()
-    fig.savefig(filename, bbox_inches='tight')
-    plt.close(fig)
+    # fig.gca().set_axis_off()
+    with open(filename, 'w') as f:
+        f.write(fig)
+    #fig.savefig(filename, bbox_inches='tight')
+    #plt.close(fig)
 
 
 def construct_atom_neighbor_list(array_rep):
@@ -171,13 +176,13 @@ def construct_atom_neighbor_list(array_rep):
 
 
 def plot(trained_weights):
-    print "Loading training data..."
+    print("Loading training data...")
     traindata, valdata, testdata = load_data(task_params['data_file'],
                         (task_params['N_train'], task_params['N_valid'], task_params['N_test']),
                         input_name='smiles', target_name=task_params['target_name'])
     train_smiles, train_targets = traindata
 
-    print "Convnet fingerprints with neural net"
+    print("Convnet fingerprints with neural net")
     conv_arch_params['return_atom_activations'] = True
     output_layer_fun, parser, compute_atom_activations = \
        build_convnet_fingerprint_fun(**conv_arch_params)
@@ -213,12 +218,11 @@ def plot(trained_weights):
     last_layer_weights = net_parser.get(net_weights, ('weights', 0))
 
     for fp_ix in range(params['fp_length']):
-        print "FP {0} has linear regression coefficient {1}".format(fp_ix, last_layer_weights[fp_ix][0])
+        print("FP {0} has linear regression coefficient {1}".format(fp_ix, last_layer_weights[fp_ix][0]))
         combined_list = []
         for radius in all_radii:
-            fp_activations = atom_activations[radius][:, fp_ix]
+            fp_activations = atom_activations[radius][:, fp_ix]  # per atom fingerprit for a radius
             combined_list += [(fp_activation, atom_ix, radius) for atom_ix, fp_activation in enumerate(fp_activations)]
-
         unique_list = remove_duplicates(combined_list, key_lambda=lambda x: x[0])
         combined_list = sorted(unique_list, key=lambda x: -x[0])
 
@@ -227,21 +231,21 @@ def plot(trained_weights):
             activation, most_active_atom_ix, cur_radius = combined_list[fig_ix]
             most_activating_mol_ix = parent_molecule_dict[most_active_atom_ix]
             highlight_list_our_ixs = get_neighborhood_ixs(array_rep, most_active_atom_ix, cur_radius)
-            highlight_list_rdkit = [array_rep['rdkit_ix'][our_ix] for our_ix in highlight_list_our_ixs]
+            highlight_list_rdkit = [int(array_rep['rdkit_ix'][our_ix]) for our_ix in highlight_list_our_ixs]
 
-            print "radius:", cur_radius, "atom list:", highlight_list_rdkit, "activation", activation
+            print("radius:", cur_radius, "atom list:", highlight_list_rdkit, "activation", activation)
             draw_molecule_with_highlights(
-                "figures/fp_{0}_highlight_{1}.pdf".format(fp_ix, fig_ix),
+                "figures/fp_{0}_highlight_{1}.svg".format(fp_ix, fig_ix),
                 train_smiles[most_activating_mol_ix],
                 highlight_atoms=highlight_list_rdkit)
 
 if __name__ == '__main__':
     # Training.  Only need to run this part if we haven't yet saved results.pkl
     trained_network_weights = train_neural_fingerprint()
-    with open('results.pkl', 'w') as f:
+    with open('results.pkl', 'wb') as f:
         pickle.dump(trained_network_weights, f)
 
     # Plotting.
-    with open('results.pkl') as f:
+    with open('results.pkl', 'rb') as f:
         trained_weights = pickle.load(f)
     plot(trained_weights)
